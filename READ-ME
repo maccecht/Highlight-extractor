@@ -1,0 +1,11 @@
+"""This little bit of code will go through a document containing pdfs and extract any text you've highlighted in them. 
+It will then compile all of this text into a single pdf using the pdf name as a title for each section. 
+
+You will need to install PyMuPDF to extract the data from pdfs. Documentation is here: https://pymupdf.readthedocs.io/en/latest/index.html or just
+    pip install --upgrade pymupdf
+
+I downloaded the Times tff font from here: https://www.freebestfonts.com/timr45w-font 
+You can change the font if needed but as it is, the function will expect a tff font file to be available. 
+
+It currently operates in batches of 50. This isn't really necessary but there seems to be a bug I haven't fixed which causes it to crash every now and then so 
+I made it work in batches to ensure that I got most of my highlights out in time. I hope to fix this in the future. """ 
