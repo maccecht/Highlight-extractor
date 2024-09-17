@@ -2,7 +2,10 @@
 It will then compile all of this text into a single pdf using the pdf name as a title for each section. 
 
 You will need to install PyMuPDF to extract the data from pdfs. Documentation is here: https://pymupdf.readthedocs.io/en/latest/index.html or just
-    pip install --upgrade pymupdf
+     pip install --upgrade pymupdf
+
+You will need to install reportlab to produce the pdf. Documentation is here: https://docs.reportlab.com/
+    pip install reportlab
 
 I downloaded the Times tff font from here: https://www.freebestfonts.com/timr45w-font 
 You can change the font if needed but as it is, the function will expect a tff font file to be available. 
