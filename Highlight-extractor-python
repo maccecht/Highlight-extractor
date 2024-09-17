@@ -1,5 +1,6 @@
-# Import packages. The most significant package here is PyMuPDF. If you don't have it use: 
+# Import packages. The most significant will be PyMuPDF (for scraping pdfs) and reportlab (for compiling pdfs). If you don't have them use: 
 # pip install --upgrade pymupdf
+# pip install reportlab 
 
 import os
 import fitz   
