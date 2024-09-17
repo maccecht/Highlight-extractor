@@ -1,0 +1,174 @@
+# Import packages. The most significant package here is PyMuPDF. If you don't have it use: 
+# pip install --upgrade pymupdf
+
+import os
+import fitz   
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.enums import TA_CENTER
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase import pdfmetrics
+from xml.sax.saxutils import escape  # This is for escaping special characters
+
+# Register Times New Roman font (if not already registered). I downloaded Times.ttf from 'https://www.freebestfonts.com/timr45w-font'
+pdfmetrics.registerFont(TTFont('Times-Roman', 'Times.ttf'))
+
+# Function to extract highlighted text from a single PDF and handle multi-line highlights. 
+def extract_highlights(pdf_path):
+    highlighted_texts = []
+
+    # Skip files with 0 size
+    if os.path.getsize(pdf_path) == 0:
+        print(f"Skipping empty file: {pdf_path}")
+        return None
+
+    # Open the PDF
+    pdf_document = fitz.open(pdf_path)
+
+    # Skip empty files (files with zero pages)
+    if pdf_document.page_count == 0:
+        pdf_document.close()
+        print(f"Skipping PDF with zero pages: {pdf_path}")
+        return None
+    
+    # Loop through the pages
+    has_highlights = False
+    for page_num in range(pdf_document.page_count):
+        page = pdf_document.load_page(page_num)
+        annot_list = page.annots()
+        
+        # If annotations are present, extract highlighted text
+        if annot_list:
+            has_highlights = True
+            for annot in annot_list:
+                if annot.type[0] == 8:  # Annotation type for highlight is 8 (highlight)
+                    highlight_quadpoints = annot.vertices
+                    highlight_text = ""
+                    # Extract text within the highlighted area across multiple lines
+                    for i in range(0, len(highlight_quadpoints), 4):
+                        # Get the rectangle coordinates for highlighted area
+                        quad = fitz.Quad(highlight_quadpoints[i:i+4])
+                        # Extract text in the rectangle
+                        highlight_text_chunk = page.get_text("text", clip=quad.rect).strip()
+                        if highlight_text_chunk:
+                            highlight_text += " " + highlight_text_chunk
+                    
+                    if highlight_text.strip():
+                        highlighted_texts.append(highlight_text.strip())  # Append the whole chunk
+    
+    pdf_document.close()
+
+    # Return None if there were no highlights
+    if not has_highlights:
+        print(f"No highlights found in file: {pdf_path}")
+        return None
+    
+    return highlighted_texts
+
+# Function to create a new PDF that combines the highlighted text from multiple PDFs
+def create_combined_highlight_pdf(output_path, pdf_data, batch_number):
+    # Create a PDF using ReportLab's SimpleDocTemplate
+    doc = SimpleDocTemplate(f"{output_path}_batch_{batch_number}.pdf", pagesize=letter)
+    
+    # List to store the Table content
+    elements = []
+    
+    # Get the styles
+    styles = getSampleStyleSheet()
+    title_style = styles['Title']
+    body_style = styles['BodyText']  # BodyText for table cells
+    title_style.alignment = TA_CENTER
+    
+    # Loop through each PDF's extracted data
+    for pdf_title, highlighted_texts in pdf_data:
+        if highlighted_texts:
+            # Add the title of the PDF (filename without extension) with larger font and center alignment
+            title = Paragraph(escape(pdf_title), title_style)
+            elements.append(title)
+            elements.append(Spacer(1, 12))  # Add a small space after the title
+            
+            # Prepare data for the table with Paragraph objects to handle wrapping
+            table_data = []
+            for text in highlighted_texts:
+                if text:
+                    # Escape any special characters in the text
+                    paragraph = Paragraph(escape(text), body_style)
+                    table_data.append([paragraph])
+            
+            # Only create the table if there's valid data
+            if table_data:
+                # Create a table with the highlighted texts
+                table = Table(table_data, colWidths=[7 * inch])  # Table width = 7 inches
+
+                # Style for the table
+                table_style = TableStyle([
+                    ('FONTNAME', (0, 0), (-1, -1), 'Times-Roman'),  # Use Times New Roman font
+                    ('FONTSIZE', (0, 0), (-1, -1), 12),  # Set font size
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),  # Align text to the left
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),  # Vertical alignment
+                    ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),  # Text color
+                    ('LINEBELOW', (0, 0), (-1, -1), 0.25, colors.black),  # Underline each row
+                    ('LINEABOVE', (0, 0), (-1, -1), 0.25, colors.black),  # Line above each row
+                    ('LEFTPADDING', (0, 0), (-1, -1), 12),  # Padding
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 12),
+                    ('TOPPADDING', (0, 0), (-1, -1), 8),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+                ])
+                
+                # Add rounded edges and alternate row colors
+                for i, _ in enumerate(table_data):
+                    bg_color = colors.lightgrey if i % 2 == 0 else colors.whitesmoke
+                    table_style.add('BACKGROUND', (0, i), (-1, i), bg_color)  # Alternate shading
+                
+                table.setStyle(table_style)
+                
+                # Add table to elements
+                elements.append(table)
+                elements.append(Spacer(1, 24))  # Add space between different PDFs' data
+    
+    # Only build the PDF if there are elements to include
+    if elements:
+        doc.build(elements)
+        print(f"Batch {batch_number} saved as {output_path}_batch_{batch_number}.pdf")
+    else:
+        print(f"Skipping batch {batch_number} - no valid highlights found.")
+
+# Main function to extract highlights from all PDFs in a folder and output a PDF every 50 files. 
+# I do this in batches because it occassionally crashes and I haven't figured out why. It has still worked for hundred of pdfs. 
+
+def extract_highlights_from_folder(input_folder, output_pdf_base):
+    pdf_data = []
+    batch_number = 1
+    count = 0
+
+    # Iterate over all PDF files in the input folder
+    for filename in os.listdir(input_folder):
+        if filename.endswith(".pdf"):
+            pdf_path = os.path.join(input_folder, filename)
+            print(f"Scraping highlights from: {filename}")
+            highlights = extract_highlights(pdf_path)
+            if highlights:  # Only add if the PDF contains highlights
+                # Use the filename (without the ".pdf" extension) as the title
+                pdf_title = os.path.splitext(filename)[0]
+                pdf_data.append((pdf_title, highlights))
+                count += 1
+            
+            # If we reach 50 files, create a new batch output PDF
+            if count == 50:
+                create_combined_highlight_pdf(output_pdf_base, pdf_data, batch_number)
+                pdf_data = []  # Reset for the next batch
+                batch_number += 1
+                count = 0
+
+    # If there are any remaining PDFs after the loop, create one last output PDF
+    if pdf_data:
+        create_combined_highlight_pdf(output_pdf_base, pdf_data, batch_number)
+
+# Example usage:
+input_folder_path = "name_of_folder"  # Folder containing PDFs
+output_pdf_base = "my_combined_pdf_highlights"  # Base name for output PDF files
+
+# Run the process
+extract_highlights_from_folder(input_folder_path, output_pdf_base)
